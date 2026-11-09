@@ -577,6 +577,103 @@ describe("ADR-0020 plugins", () => {
       assert.equal(out, undefined);
     });
 
+    const webTools = ["web_search", "fetch_content", "get_search_content", "source_check"];
+    const largeWebText = "# Web result\n" + "A source paragraph about task cancellation.\n".repeat(500);
+
+    for (const toolName of webTools) {
+      test(`tool_result: contextMode.excludeTools preserves ${toolName} content and metadata`, async () => {
+        const { pi, handlers } = fakePi();
+        let active = false;
+        pi.getSettings = () => {
+          assert.ok(active, "settings are read only after the host runtime is bound");
+          return { contextMode: { excludeTools: webTools } };
+        };
+        piExtension(pi);
+        active = true;
+        const event = {
+          toolName, toolCallId: "web-" + toolName, input: {},
+          content: [{ type: "text", text: largeWebText + '\nresponseId: "web-response-1"' }],
+          details: { responseId: "web-response-1" },
+          structuredContent: { responseId: "web-response-1", successful: 1 }, isError: false,
+        };
+        const before = structuredClone(event);
+        assert.equal(await handlers.get("tool_result")(event, ctxFor("s-exclude-" + toolName)), undefined);
+        assert.deepEqual(event, before);
+      });
+    }
+
+    test("tool_result: exclusions match exact names and leave other tools compressed", async () => {
+      const { pi, handlers } = fakePi();
+      pi.getSettings = () => ({ contextMode: { excludeTools: webTools } });
+      piExtension(pi);
+      const out = await handlers.get("tool_result")({
+        toolName: "other_fetch_content", toolCallId: "unlisted", input: {},
+        content: [{ type: "text", text: largeWebText }], isError: false,
+      }, ctxFor("s-exclude-unlisted"));
+      assert.ok(out && out.content[0].text.includes("ctx_search"));
+      assert.deepEqual(Object.keys(out.details), ["text"]);
+    });
+
+    test("tool_result: absent, empty and malformed exclusions retain default compression", async () => {
+      const settings = [undefined, {}, { contextMode: { excludeTools: [] } },
+        { contextMode: { excludeTools: "fetch_content" } },
+        { contextMode: { excludeTools: ["fetch_content", 1] } },
+        { contextMode: { excludeTools: null } }];
+      for (let i = 0; i < settings.length; i++) {
+        const { pi, handlers } = fakePi();
+        if (i !== 0) pi.getSettings = () => settings[i];
+        piExtension(pi);
+        const out = await handlers.get("tool_result")({
+          toolName: "fetch_content", toolCallId: "default-" + i, input: {},
+          content: [{ type: "text", text: largeWebText }], isError: false,
+        }, ctxFor("s-exclude-default-" + i));
+        assert.ok(out && out.content[0].text.includes("ctx_search"), "default compression for case " + i);
+      }
+    });
+
+    test("tool_result: effective exclusions are read again after settings change", async () => {
+      const { pi, handlers } = fakePi();
+      let settings = { contextMode: { excludeTools: ["fetch_content"] } };
+      pi.getSettings = () => settings;
+      piExtension(pi);
+      const event = { toolName: "fetch_content", toolCallId: "changed", input: {}, content: [{ type: "text", text: largeWebText }], isError: false };
+      assert.equal(await handlers.get("tool_result")(event, ctxFor("s-exclude-change")), undefined);
+      settings = { contextMode: { excludeTools: [] } };
+      assert.ok(await handlers.get("tool_result")(event, ctxFor("s-exclude-change")));
+    });
+
+    test("tool_result: preserved responseId can continue into excluded get_search_content", async () => {
+      const { pi, handlers } = fakePi();
+      pi.getSettings = () => ({ contextMode: { excludeTools: webTools } });
+      piExtension(pi);
+      const stored = new Map([["web-continuation-1", largeWebText]]);
+      const first = { toolName: "fetch_content", toolCallId: "fetch-1", input: {},
+        content: [{ type: "text", text: largeWebText + '\nresponseId: "web-continuation-1"' }],
+        details: { responseId: "web-continuation-1" }, isError: false };
+      assert.equal(await handlers.get("tool_result")(first, ctxFor("s-web-continuation")), undefined);
+      const responseId = /responseId: "([^"]+)"/.exec(first.content[0].text)[1];
+      const text = stored.get(responseId);
+      assert.equal(text, largeWebText);
+      const continuation = { toolName: "get_search_content", toolCallId: "read-1", input: { responseId },
+        content: [{ type: "text", text }], details: { responseId }, isError: false };
+      assert.equal(await handlers.get("tool_result")(continuation, ctxFor("s-web-continuation")), undefined);
+      assert.equal(continuation.details.responseId, first.details.responseId);
+    });
+
+    test("tool_result: excluded errors retain their original error flag and are still journaled", async () => {
+      const { pi, handlers, tools } = fakePi();
+      pi.getSettings = () => ({ contextMode: { excludeTools: webTools } });
+      piExtension(pi);
+      await handlers.get("before_agent_start")({ systemPrompt: "" }, ctxFor("s-exclude-error"));
+      const text = "web-error-marker " + largeWebText;
+      const event = { toolName: "fetch_content", toolCallId: "error-1", input: {},
+        content: [{ type: "text", text }], details: { error: "upstream" }, isError: true };
+      assert.equal(await handlers.get("tool_result")(event, ctxFor("s-exclude-error")), undefined);
+      assert.equal(event.isError, true);
+      const resumed = (await tools.get("ctx_resume").execute("resume-excluded-error", {})).content[0].text;
+      assert.match(resumed, /error #\d+ fetch_content:/);
+    });
+
     test("session lifecycle: input, session_compact, then the next before_agent_start runs in order without error", async () => {
       const { pi, handlers } = fakePi();
       piExtension(pi);

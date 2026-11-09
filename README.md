@@ -563,6 +563,24 @@ Full reference: [Tools](https://contextmode.ai/docs/engine/tools?utm_source=gith
 
 Commands in the agent: `/ctx-stats` shows the `ctx_stats` result, `/ctx-doctor` runs `ctx_doctor` (send its report with a defect report), and `/ctx-upgrade` runs `ctx_upgrade`, then `ctx_doctor`.
 
+### Pi tool-result exclusions
+
+To keep another extension's tool results unchanged, add exact tool names to Pi's global
+`~/.pi/agent/settings.json` or project `.pi/settings.json`:
+
+```json
+{
+  "contextMode": {
+    "excludeTools": ["web_search", "fetch_content", "get_search_content", "source_check"]
+  }
+}
+```
+
+Run `/reload` after editing the settings. Excluded results keep their original text and metadata;
+large web results enter the conversation uncompressed. Other tools, permission checks and journaling
+retain their existing behavior. The default exclusion list is empty. Use an array of strings;
+other values retain default compression. This option uses Pi's `getSettings()` API.
+
 ## Security and privacy
 
 - The plugin keeps all its data on your machine, one database per project in `~/.context-mode`, and `ctx_purge` deletes it by session, source or project. Read the [Security guide](https://contextmode.ai/docs/engine/security?utm_source=github&utm_medium=readme&utm_content=security).

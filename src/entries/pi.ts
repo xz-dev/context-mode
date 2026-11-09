@@ -38,12 +38,20 @@ export interface PiTool {
 export interface PiApi {
   on(event: string, handler: (event: Record<string, unknown>, ctx?: PiContext) => unknown): void;
   registerTool(tool: PiTool): void;
+  getSettings?(): unknown;
 }
 
 type PiEvent = Record<string, unknown>;
 
 function str(v: unknown): string {
   return typeof v === "string" ? v : "";
+}
+
+function keepToolResult(pi: PiApi, toolName: unknown): boolean {
+  const settings = pi.getSettings?.() as { contextMode?: { excludeTools?: unknown } } | undefined;
+  const excluded = settings?.contextMode?.excludeTools;
+  return typeof toolName === "string" && Array.isArray(excluded)
+    && excluded.every((name) => typeof name === "string") && excluded.includes(toolName);
 }
 
 // Pi tool_result content is a list of parts; the text parts are the result text.
@@ -185,7 +193,7 @@ export default function piExtension(pi: PiApi): void {
     identify(ctx);
     const out = await hook({
       type: "tool_result", toolName: event.toolName, toolCallId: event.toolCallId, input: event.input,
-      content: textOf(event.content), isError: event.isError === true,
+      content: textOf(event.content), isError: event.isError === true, keep: keepToolResult(pi, event.toolName),
     }, turn);
     if (out.stdout === "") return undefined;
     return { content: [{ type: "text", text: out.stdout }], details: { text: out.stdout } };

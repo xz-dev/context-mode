@@ -163,6 +163,14 @@ describe("ADR-0020 adapters", () => {
       assert.throws(() => r.decode(null), /pi: hook payload is not an object/);
     });
 
+    test("pi only preserves explicitly kept tool results", () => {
+      const raw = { type: "tool_result", sessionId: "s", cwd: "/p", toolName: "fetch_content", content: "page" };
+      assert.equal(pi.decode({ ...raw, keep: true }).result.keep, true);
+      for (const keep of [undefined, false, "true", 1]) {
+        assert.equal(pi.decode({ ...raw, keep }).result.keep, undefined);
+      }
+    });
+
     test("pi encode: allow is the empty shape; injected text is a custom-role message with a timestamp", () => {
       const r = getAdapter("pi");
       const ss = { event: "SessionStart", agent: "pi", sessionId: "s", cwd: "/p" };

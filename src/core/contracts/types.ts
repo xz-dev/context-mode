@@ -29,7 +29,7 @@ export interface ToolCall {
 
 // persistedPath (D-M2-SHAPE-2): the host kept the whole output in this file and `text` is only its head.
 // blocks (D-M2-MCP-1): the host gave an MCP content-block array; a replace must be one text block.
-// keep: a block is not text (image, resource), so the original result stays.
+// keep: the adapter requires the original result (non-text blocks or configured output exclusions).
 export interface ToolResultInfo { isError: boolean; bytes: number; text?: string; exitCode?: number; persistedPath?: string; blocks?: boolean; keep?: boolean; shape?: Record<string, unknown>; }
 // shape (D-M2-MCP-1, D-CC-SHAPE-1, D-R33-CC-SHELL-1): the native tool object (Bash, Read file, Grep, Glob, WebFetch) as the host gave it; a replace keeps its fields and swaps the text field.
 
